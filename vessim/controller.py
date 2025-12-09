@@ -13,6 +13,11 @@ import time
 
 import mosaik_api_v3  # type: ignore
 
+INFLUX_URL = "http://127.0.0.1:8181"
+INFLUX_DB = "vessim"
+INFLUX_TOKEN = "apiv3_6xOiVT4VoO_vs5nOxnB1tW2BwktXpAQ6WUdcCH1W2oZcvxcquHl_uBSvjSyYvwFuGLqX4hsWk9ZjXWnpRFmXBQ"
+
+
 if TYPE_CHECKING:
     from vessim.microgrid import Microgrid, MicrogridState
 
@@ -52,11 +57,22 @@ class Monitor(Controller):
         microgrids: list[Microgrid],
         step_size: Optional[int] = None,
         outfile: Optional[str | Path] = None,
+
+        # neue optionale Influx Parameter
+        influx_url: Optional[str] = None,
+        influx_db: Optional[str] = None,
+        influx_token: Optional[str] = None,
     ):
         super().__init__(microgrids, step_size=step_size)
         self.outfile: Optional[Path] = Path(outfile) if outfile else None
-        self._fieldnames: dict[str, Optional[list]] = {}  # Per microgrid fieldnames
+        self._fieldnames: dict[str, Optional[list]] = {}
         self.log: dict[datetime, dict[str, MicrogridState]] = defaultdict(dict)
+
+        # speichern für finalize
+        self.influx_url = influx_url
+        self.influx_db = influx_db
+        self.influx_token = influx_token
+
 
     def step(self, t: datetime, microgrid_states: dict[str, MicrogridState]) -> None:
         self.log[t] = microgrid_states
@@ -96,6 +112,91 @@ class Monitor(Controller):
                 if write_header:
                     writer.writeheader()
                 writer.writerow(log_entry)
+    def finalize(self) -> None:
+        super().finalize()
+
+        # Wenn keine Influx-Daten angegeben → kein Export
+        if not (self.influx_url and self.influx_db and self.influx_token):
+            return
+
+        from datetime import timezone
+        import requests
+
+        lines = []
+
+        for t, microgrid_states in self.log.items():
+            dt = t.replace(tzinfo=timezone.utc)
+            ts_ns = int(dt.timestamp() * 1_000_000_000)
+
+            for mg_name, state in microgrid_states.items():
+                actor_states = state.get("actor_states", {}) or {}
+                policy_state = state.get("policy_state", {}) or {}
+                storage_state = state.get("storage_state", {}) or {}
+
+                grid_status = str(policy_state.get("mode", "unknown"))
+                server = actor_states.get("server", {}) or {}
+                solar = actor_states.get("solar_panel", {}) or {}
+
+                server_name = str(server.get("name", "server"))
+                solar_name = str(solar.get("name", "solar_panel"))
+
+                tags = [
+                    f"microgrid={mg_name}",
+                    f"grid_status={grid_status}",
+                    f"server={server_name}",
+                    f"solar={solar_name}",
+                ]
+
+                fields = []
+
+                if isinstance(server.get("p"), (int, float)):
+                    fields.append(f"power_server={float(server['p'])}")
+
+                if isinstance(solar.get("p"), (int, float)):
+                    fields.append(f"power_solar={float(solar['p'])}")
+
+                if isinstance(storage_state.get("soc"), (int, float)):
+                    fields.append(f"soc={float(storage_state['soc'])}")
+
+                if isinstance(storage_state.get("capacity"), (int, float)):
+                    fields.append(f"energy={float(storage_state['capacity'])}")
+
+                if not fields:
+                    continue
+
+                measurement = "vessim"
+                tag_str = ",".join(tags)
+                field_str = ",".join(fields)
+
+                lines.append(f"{measurement},{tag_str} {field_str} {ts_ns}")
+
+        if not lines:
+            return
+
+        payload = "\n".join(lines)
+
+        # DB anlegen
+        requests.post(
+            f"{self.influx_url}/api/v3/configure/database",
+            headers={
+                "Authorization": f"Bearer {self.influx_token}",
+                "Content-Type": "application/json",
+            },
+            json={"db": self.influx_db},
+        )
+
+        # LP schreiben
+        requests.post(
+            f"{self.influx_url}/api/v3/write_lp",
+            params={"db": self.influx_db, "precision": "ns"},
+            headers={
+                "Authorization": f"Bearer {self.influx_token}",
+                "Content-Type": "text/plain",
+            },
+            data=payload,
+        )
+
+        print(f"Monitor: {len(lines)} Punkte an Influx geschickt.")
 
 
 class Api(Controller):
