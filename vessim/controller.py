@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from csv import DictWriter
 from itertools import count
@@ -12,10 +12,15 @@ import multiprocessing
 import time
 
 import mosaik_api_v3  # type: ignore
+import requests # Imported here for use in Monitor.finalize
 
-INFLUX_URL = "http://127.0.0.1:8181"
-INFLUX_DB = "vessim"
-INFLUX_TOKEN = "apiv3_6xOiVT4VoO_vs5nOxnB1tW2BwktXpAQ6WUdcCH1W2oZcvxcquHl_uBSvjSyYvwFuGLqX4hsWk9ZjXWnpRFmXBQ"
+# --- NEW DEFAULTS FOR INFLUXDB 2 SETUP ---
+# These match the values in your docker-compose.yml file
+INFLUX_URL = "http://127.0.0.1:8086"
+INFLUX_ORG = "vessim_org"
+INFLUX_BUCKET = "vessim_bucket"
+# You might want to get this from an environment variable in a real application
+INFLUX_TOKEN = "supersecrettoken"
 
 
 if TYPE_CHECKING:
@@ -58,20 +63,22 @@ class Monitor(Controller):
         step_size: Optional[int] = None,
         outfile: Optional[str | Path] = None,
 
-        # neue optionale Influx Parameter
+        # Updated optional Influx Parameters for V2
         influx_url: Optional[str] = None,
-        influx_db: Optional[str] = None,
+        influx_bucket: Optional[str] = None, # Renamed from influx_db
         influx_token: Optional[str] = None,
+        influx_org: Optional[str] = None,    # Added for V2
     ):
         super().__init__(microgrids, step_size=step_size)
         self.outfile: Optional[Path] = Path(outfile) if outfile else None
         self._fieldnames: dict[str, Optional[list]] = {}
         self.log: dict[datetime, dict[str, MicrogridState]] = defaultdict(dict)
 
-        # speichern für finalize
-        self.influx_url = influx_url
-        self.influx_db = influx_db
-        self.influx_token = influx_token
+        # Store for finalize, using provided parameters or global defaults
+        self.influx_url = influx_url or INFLUX_URL
+        self.influx_bucket = influx_bucket or INFLUX_BUCKET
+        self.influx_token = influx_token or INFLUX_TOKEN
+        self.influx_org = influx_org or INFLUX_ORG
 
 
     def step(self, t: datetime, microgrid_states: dict[str, MicrogridState]) -> None:
@@ -112,15 +119,14 @@ class Monitor(Controller):
                 if write_header:
                     writer.writeheader()
                 writer.writerow(log_entry)
+
     def finalize(self) -> None:
         super().finalize()
 
         # Wenn keine Influx-Daten angegeben → kein Export
-        if not (self.influx_url and self.influx_db and self.influx_token):
+        if not (self.influx_url and self.influx_bucket and self.influx_token and self.influx_org):
+            print("Monitor: InfluxDB credentials missing or incomplete. Skipping data export.")
             return
-
-        from datetime import timezone
-        import requests
 
         lines = []
 
@@ -175,28 +181,28 @@ class Monitor(Controller):
 
         payload = "\n".join(lines)
 
-        # DB anlegen
-        requests.post(
-            f"{self.influx_url}/api/v3/configure/database",
-            headers={
-                "Authorization": f"Bearer {self.influx_token}",
-                "Content-Type": "application/json",
-            },
-            json={"db": self.influx_db},
-        )
+        # --- INFLUXDB V2 API WRITING ---
+        write_url = f"{self.influx_url}/api/v2/write"
 
-        # LP schreiben
-        requests.post(
-            f"{self.influx_url}/api/v3/write_lp",
-            params={"db": self.influx_db, "precision": "ns"},
+        response = requests.post(
+            write_url,
+            params={
+                "bucket": self.influx_bucket,
+                "org": self.influx_org,
+                "precision": "ns"
+            },
             headers={
-                "Authorization": f"Bearer {self.influx_token}",
+                "Authorization": f"Token {self.influx_token}",
                 "Content-Type": "text/plain",
             },
             data=payload,
         )
 
-        print(f"Monitor: {len(lines)} Punkte an Influx geschickt.")
+        if response.status_code == 204:
+            print(f"Monitor: {len(lines)} Punkte an InfluxDB V2 geschickt.")
+        else:
+            print(
+                f"Monitor: Fehler beim Senden an InfluxDB V2. Status Code: {response.status_code}, Response: {response.text}")
 
 
 class Api(Controller):

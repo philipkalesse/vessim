@@ -1,62 +1,50 @@
 services:
-  influxdb3-core:
-    container_name: influxdb3-core
-    image: influxdb:3-core
+  influxdb2:
+    container_name: influxdb2
+    image: influxdb:2
     ports:
-      - "8181:8181"
-    command:
-      - influxdb3
-      - serve
-      - --node-id=vessim
-      - --object-store=file
-      - --data-dir=/var/lib/influxdb3
-      - --without-auth
+      - "8086:8086"
     volumes:
-      - influxdb_data:/var/lib/influxdb3
+      # Mount named volumes for persistence of data and configuration
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    environment:
+      # **IMPORTANT**: Set initial credentials for InfluxDB 2
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin123
+      - DOCKER_INFLUXDB_INIT_ORG=vessim_org
+      - DOCKER_INFLUXDB_INIT_BUCKET=vessim_bucket
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=KohTsauOc5S-v8IoQ2E-fIXZVnH3vGf-ouCWabXEKYZa_0mFhJczFrIJdSAnLvl33ARJZ7AEvDSARoY9GPzJVw==
+      - DOCKER_INFLUXDB_INIT_RETENTION=
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8181/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8086/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-    restart: unless-stopped
-
-  influxdb3-init:
-    image: influxdb:3-core
-    depends_on:
-      influxdb3-core:
-        condition: service_healthy
-    volumes:
-      - influxdb_data:/var/lib/influxdb3
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      echo "Wipe InfluxDB3 Datenverzeichnis..."
-      rm -rf /var/lib/influxdb3/*
-
-      echo "Warte auf InfluxDB3..."
-      until curl -sf http://influxdb3-core:8181/health >/dev/null; do
-        echo "InfluxDB noch nicht bereit, warte..."
-        sleep 2
-      done
-
-      echo "Erstelle Datenbank 'vessim'..."
-      influxdb3 --host http://influxdb3-core:8181 create database vessim || true
-
-      echo "Init fertig."
-    restart: "no"
 
   grafana:
     container_name: grafana
-    image: grafana/grafana
+    image: grafana/grafana:latest
     ports:
       - "3001:3000"
-
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin123
     depends_on:
-      - influxdb3-core
+      - influxdb2
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - grafana_logs:/var/log/grafana
+      - grafana_config:/etc/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning
     restart: unless-stopped
 
 volumes:
+  # Define named volumes managed by Docker for persistent storage
   influxdb_data:
+  influxdb_config:
   grafana_data:
+  grafana_logs:
+  grafana_config:

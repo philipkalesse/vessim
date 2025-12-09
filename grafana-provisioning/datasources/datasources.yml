@@ -1,0 +1,18 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB2
+    type: influxdb
+    uid: influxdb2
+    access: proxy
+    url: http://influxdb2:8086
+    isDefault: true
+
+    jsonData:
+      version: Flux
+      httpMode: POST
+      organization: vessim_org
+      tlsSkipVerify: true
+
+    secureJsonData:
+      accessToken: KohTsauOc5S-v8IoQ2E-fIXZVnH3vGf-ouCWabXEKYZa_0mFhJczFrIJdSAnLvl33ARJZ7AEvDSARoY9GPzJVw==

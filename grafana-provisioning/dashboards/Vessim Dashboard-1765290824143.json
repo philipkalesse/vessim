@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "influxdb3"
+        "uid": "InfluxDB2"
       },
       "fieldConfig": {
         "defaults": {
@@ -108,32 +108,9 @@
       "pluginVersion": "12.3.0",
       "targets": [
         {
-          "dataset": "iox",
-          "datasource": {
-            "type": "influxdb",
-            "uid": "influxdb3"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "select power_solar,time from vessim ",
           "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ]
-          }
+          "query": "from(bucket: \"vessim_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement == \"vessim\" and\n    r._field == \"power_solar\"\n  )",
+          "queryType": "flux"
         }
       ],
       "title": "Solar Leistung",
@@ -143,7 +120,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "influxdb3"
+        "uid": "InfluxDB2"
       },
       "fieldConfig": {
         "defaults": {
@@ -220,28 +197,9 @@
       "pluginVersion": "12.3.0",
       "targets": [
         {
-          "dataset": "iox",
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT\r\n  DATE_TRUNC('day', time) AS time,\r\n  AVG(power_solar)*24/1000 AS avg_power_solar\r\nFROM \"vessim\"\r\nWHERE $__timeFilter(time)\r\nGROUP BY 1\r\nORDER BY 1;\r\n",
           "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ]
-          }
+          "query": "from(bucket: \"vessim_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement == \"vessim\" and\n    r._field == \"power_solar\"\n  )\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with _value: r._value * 24.0 / 1000.0 }))\n  |> rename(columns: {_value: \"avg_power_solar\"})",
+          "queryType": "flux"
         }
       ],
       "title": "Solar erzeugung pro Tag",
@@ -251,7 +209,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "influxdb3"
+        "uid": "InfluxDB2"
       },
       "fieldConfig": {
         "defaults": {
@@ -332,28 +290,9 @@
       "pluginVersion": "12.3.0",
       "targets": [
         {
-          "dataset": "iox",
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT\r\n  DATE_TRUNC('day', time) AS time,\r\n  AVG(power_solar)*24/1000 + AVG(power_server)*24/1000 AS avg_power_solar\r\n  \r\nFROM \"vessim\"\r\nWHERE $__timeFilter(time)\r\nGROUP BY 1\r\nORDER BY 1;\r\n",
           "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ]
-          }
+          "query": "data =\n  from(bucket: \"vessim_bucket\")\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) =>\n      r._measurement == \"vessim\" and\n      (r._field == \"power_solar\" or r._field == \"power_server\")\n    )\n    |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)\n    |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n    |> map(fn: (r) => ({\n        r with\n        _value: (r.power_solar + r.power_server) * 24.0 / 1000.0\n    }))\n\ndata\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"avg_power_solar\"})",
+          "queryType": "flux"
         }
       ],
       "title": "Erzeugung-Verbrauch ",
@@ -363,7 +302,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "influxdb3"
+        "uid": "InfluxDB2"
       },
       "fieldConfig": {
         "defaults": {
@@ -448,34 +387,9 @@
       "pluginVersion": "12.3.0",
       "targets": [
         {
-          "dataset": "iox",
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "select time,soc FROM vessim",
           "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "name": "SUM",
-                "parameters": [
-                  {
-                    "name": "",
-                    "type": "functionParameter"
-                  }
-                ],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ]
-          }
+          "query": "from(bucket: \"vessim_bucket\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement == \"vessim\" and\n    r._field == \"soc\"\n  )",
+          "queryType": "flux"
         }
       ],
       "title": "Ladestand Batterie",
