@@ -49,9 +49,7 @@ services:
     image: grafana/grafana
     ports:
       - "3001:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - "/mnt/c/Users/Admin/Documents/VESSIM DOCKER/provisioning:/etc/grafana/provisioning"
+
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin123
