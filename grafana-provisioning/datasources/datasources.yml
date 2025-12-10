@@ -9,10 +9,11 @@ datasources:
     isDefault: true
 
     jsonData:
-      version: Flux
+      version: Flux             # Important: Flux for InfluxDB 2.x
       httpMode: POST
-      organization: vessim_org
+      organization: vessim_org  # Must match DOCKER_INFLUXDB_INIT_ORG
+      defaultBucket: vessim_bucket
       tlsSkipVerify: true
 
     secureJsonData:
-      accessToken: KohTsauOc5S-v8IoQ2E-fIXZVnH3vGf-ouCWabXEKYZa_0mFhJczFrIJdSAnLvl33ARJZ7AEvDSARoY9GPzJVw==
+      token: ${INFLUX_TOKEN}  # Use environment variable for security
